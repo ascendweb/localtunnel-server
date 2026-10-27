@@ -1,0 +1,35 @@
+services:
+  localtunnel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command:
+      - --port
+      - "3000"
+      - --domain
+      - shares.ascendde.dev
+      - --min-port=40000
+      - --max-port=40100
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    ports:
+      - "40000-40100:40000-40100"
+    expose:
+      - "3000"
+    networks:
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.lt-wildcard.rule=Host(`shares.ascendde.dev`) || HostRegexp(`[a-z0-9-]+\\.shares\\.ascendde\\.dev`)"
+      - "traefik.http.routers.lt-wildcard.entrypoints=websecure"
+      - "traefik.http.routers.lt-wildcard.tls=true"
+      - "traefik.http.routers.lt-wildcard.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.routers.lt-wildcard.tls.domains[0].main=shares.ascendde.dev"
+      - "traefik.http.routers.lt-wildcard.tls.domains[0].sans=*.shares.ascendde.dev"
+      - "traefik.http.routers.lt-wildcard.service=lt-backend"
+      - "traefik.http.services.lt-backend.loadbalancer.server.port=3000"
+
+networks:
+  dokploy-network:
+    external: true

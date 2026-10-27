@@ -31,6 +31,15 @@ const argv = optimist
         default: 10,
         describe: 'maximum number of tcp sockets each client is allowed to establish at one time (the tunnels)'
     })
+    .options('min-port', {
+        describe: 'minimum port number to use for client connections'
+    })
+    .options('max-port', {
+        describe: 'maximum port number to use for client connections'
+    })
+    .options('token', {
+        describe: 'Bearer token required to open a tunnel. Defaults to TUNNEL_TOKEN. When unset, tunnel creation is open.'
+    })
     .argv;
 
 if (argv.help) {
@@ -42,6 +51,9 @@ const server = CreateServer({
     max_tcp_sockets: argv['max-sockets'],
     secure: argv.secure,
     domain: argv.domain,
+    min_port: argv['min-port'],
+    max_port: argv['max-port'],
+    token: argv.token || process.env.TUNNEL_TOKEN,
 });
 
 server.listen(argv.port, argv.address, () => {

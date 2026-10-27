@@ -3,6 +3,7 @@ import Koa from 'koa';
 import tldjs from 'tldjs';
 import Debug from 'debug';
 import http from 'http';
+import { timingSafeEqual } from 'crypto';
 import { hri } from 'human-readable-ids';
 import Router from 'koa-router';
 
@@ -25,8 +26,51 @@ export default function(opt) {
 
     const schema = opt.secure ? 'https' : 'http';
 
+    function tokenMatches(header) {
+        if (!opt.token) {
+            return true;
+        }
+        const value = header || '';
+        const prefix = 'bearer ';
+        if (value.length < prefix.length || value.slice(0, prefix.length).toLowerCase() !== prefix) {
+            return false;
+        }
+        const provided = Buffer.from(value.slice(prefix.length).trim());
+        const expected = Buffer.from(String(opt.token));
+        if (provided.length !== expected.length) {
+            return false;
+        }
+        return timingSafeEqual(provided, expected);
+    }
+
+    function rejectUnauthorized(ctx) {
+        ctx.status = 401;
+        ctx.body = {
+            message: 'Invalid tunnel token.',
+        };
+    }
+
     const app = new Koa();
     const router = new Router();
+
+    async function assignClient(ctx, id) {
+        try {
+            const info = await manager.newClient(id, {
+                ownerToken: ctx.get('x-tunnel-owner'),
+            });
+            info.url = schema + '://' + info.id + '.' + ctx.request.host;
+            ctx.body = info;
+        }
+        catch (err) {
+            if (err.statusCode !== 409) {
+                throw err;
+            }
+            ctx.status = 409;
+            ctx.body = {
+                message: err.message,
+            };
+        }
+    }
 
     router.get('/api/status', async (ctx, next) => {
         const stats = manager.stats;
@@ -65,13 +109,13 @@ export default function(opt) {
 
         const isNewClientRequest = ctx.query['new'] !== undefined;
         if (isNewClientRequest) {
+            if (!tokenMatches(ctx.get('authorization'))) {
+                rejectUnauthorized(ctx);
+                return;
+            }
             const reqId = hri.random();
             debug('making new client with id %s', reqId);
-            const info = await manager.newClient(reqId);
-
-            const url = schema + '://' + info.id + '.' + ctx.request.host;
-            info.url = url;
-            ctx.body = info;
+            await assignClient(ctx, reqId);
             return;
         }
 
@@ -94,6 +138,11 @@ export default function(opt) {
 
         const reqId = parts[1];
 
+        if (!tokenMatches(ctx.get('authorization'))) {
+            rejectUnauthorized(ctx);
+            return;
+        }
+
         // limit requested hostnames to 63 characters
         if (! /^(?:[a-z0-9][a-z0-9\-]{4,63}[a-z0-9]|[a-z0-9]{4,63})$/.test(reqId)) {
             const msg = 'Invalid subdomain. Subdomains must be lowercase and between 4 and 63 alphanumeric characters.';
@@ -105,11 +154,7 @@ export default function(opt) {
         }
 
         debug('making new client with id %s', reqId);
-        const info = await manager.newClient(reqId);
-
-        const url = schema + '://' + info.id + '.' + ctx.request.host;
-        info.url = url;
-        ctx.body = info;
+        await assignClient(ctx, reqId);
         return;
     });
 

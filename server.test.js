@@ -106,4 +106,48 @@ describe('Server', () => {
 
         await new Promise(resolve => server.close(resolve));
     });
+
+    it('should require a bearer token when one is configured', async () => {
+        const server = createServer({
+            token: 'secret',
+        });
+        await new Promise(resolve => server.listen(resolve));
+
+        const denied = await request(server).get('/foobar-test');
+        assert.equal(denied.statusCode, 401);
+        assert.equal(denied.body.message, 'Invalid tunnel token.');
+
+        const created = await request(server)
+            .get('/foobar-test')
+            .set('Authorization', 'Bearer secret');
+        assert.equal(created.statusCode, 200);
+        assert.equal(created.body.id, 'foobar-test');
+
+        await new Promise(resolve => server.close(resolve));
+    });
+
+    it('should reject a taken name and allow the owner token to replace it', async () => {
+        const server = createServer();
+        await new Promise(resolve => server.listen(resolve));
+
+        const first = await request(server).get('/same-name');
+        assert.equal(first.body.id, 'same-name');
+        assert.ok(first.body.owner_token);
+
+        const denied = await request(server).get('/same-name');
+        assert.equal(denied.statusCode, 409);
+        assert.equal(denied.body.message, 'Subdomain "same-name" is already in use.');
+
+        const replaced = await request(server)
+            .get('/same-name')
+            .set('X-Tunnel-Owner', first.body.owner_token);
+        assert.equal(replaced.statusCode, 200);
+        assert.equal(replaced.body.id, 'same-name');
+        assert.equal(replaced.body.owner_token, first.body.owner_token);
+
+        const status = await request(server).get('/api/status');
+        assert.equal(status.body.tunnels, 1);
+
+        await new Promise(resolve => server.close(resolve));
+    });
 });

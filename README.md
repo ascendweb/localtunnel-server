@@ -2,6 +2,20 @@
 
 [![Build Status](https://travis-ci.org/localtunnel/server.svg?branch=master)](https://travis-ci.org/localtunnel/server)
 
+## Ascend
+
+This server is the stock localtunnel server plus a bearer token, owner tokens, and a fixed port range for the client TCP connections.
+
+A name that is already registered returns 409. The create response includes `owner_token`. Sending that value back in `X-Tunnel-Owner` closes the old tunnel and reuses the name. A name is also released about a second after its last tunnel socket closes.
+
+```shell
+bin/server --port 3000 --domain shares.ascendde.dev --min-port 2000 --max-port 2100 --token "$TUNNEL_TOKEN"
+```
+
+`--token` defaults to the `TUNNEL_TOKEN` environment variable. When it is unset, anyone who can reach the server can open a tunnel. Public traffic to an existing `name.shares.ascendde.dev` host does not use the token.
+
+Open the TCP range on the firewall and publish it from Docker, for example `2000-2100:2000-2100`. The HTTP port is separate.
+
 localtunnel exposes your localhost to the world for easy testing and sharing! No need to mess with DNS or deploy just to have others test out your changes.
 
 This repo is the server component. If you are just looking for the CLI localtunnel app, see (https://github.com/localtunnel/localtunnel).
