@@ -115,7 +115,7 @@ describe('Server', () => {
 
         const denied = await request(server).get('/foobar-test');
         assert.equal(denied.statusCode, 401);
-        assert.equal(denied.body.message, 'Invalid tunnel token.');
+        assert.equal(denied.body.message, 'Unauthorized');
 
         const created = await request(server)
             .get('/foobar-test')

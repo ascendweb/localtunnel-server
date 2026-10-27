@@ -46,7 +46,7 @@ export default function (opt) {
     function rejectUnauthorized(ctx) {
         ctx.status = 401;
         ctx.body = {
-            message: 'Invalid tunnel token.',
+            message: 'Unauthorized',
         };
     }
 
