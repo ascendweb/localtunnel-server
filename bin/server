@@ -47,16 +47,25 @@ if (argv.help) {
     process.exit();
 }
 
+const token = argv.token || process.env.TUNNEL_TOKEN;
+const minPort = argv['min-port'];
+const maxPort = argv['max-port'];
+
 const server = CreateServer({
     max_tcp_sockets: argv['max-sockets'],
     secure: argv.secure,
     domain: argv.domain,
-    min_port: argv['min-port'],
-    max_port: argv['max-port'],
-    token: argv.token || process.env.TUNNEL_TOKEN,
+    min_port: minPort,
+    max_port: maxPort,
+    token: token,
 });
 
 server.listen(argv.port, argv.address, () => {
+    const clientPorts = minPort && maxPort ? `${minPort}-${maxPort}` : 'random';
+    console.log('localtunnel server listening on %s:%d', argv.address, server.address().port);
+    console.log('tunnel token: %s', token ? 'configured' : 'not configured');
+    console.log('domain: %s', argv.domain || '(not set)');
+    console.log('client ports: %s', clientPorts);
     debug('server listening on port: %d', server.address().port);
 });
 
