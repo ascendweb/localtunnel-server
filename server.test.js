@@ -1,10 +1,23 @@
 import request from 'supertest';
 import assert from 'assert';
+import http from 'http';
+import net from 'net';
 import { Server as WebSocketServer } from 'ws';
 import WebSocket from 'ws';
-import net from 'net';
 
 import createServer from './server';
+import { connectMuxClient } from './test/mux-client';
+
+async function waitConnected(server, id) {
+    for (let i = 0; i < 50; i += 1) {
+        const res = await request(server).get('/api/tunnels/' + id + '/status');
+        if (res.statusCode === 200 && res.body.connected_sockets === 1) {
+            return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new Error('tunnel session did not connect');
+}
 
 describe('Server', () => {
     it('server starts and stops', async () => {
@@ -52,9 +65,12 @@ describe('Server', () => {
 
         const websocketServerPort = wss.address().port;
 
-        const ltSocket = net.createConnection({ port: localTunnelPort });
-        const wsSocket = net.createConnection({ port: websocketServerPort });
-        ltSocket.pipe(wsSocket).pipe(ltSocket);
+        const peer = await connectMuxClient(localTunnelPort, (stream) => {
+            const wsSocket = net.createConnection({ port: websocketServerPort });
+            wsSocket.on('error', () => stream.destroy());
+            stream.pipe(wsSocket).pipe(stream);
+        });
+        await waitConnected(server, hostname);
 
         wss.once('connection', (ws) => {
             ws.once('message', (message) => {
@@ -72,16 +88,80 @@ describe('Server', () => {
             ws.send('something');
         });
 
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
+            ws.once('error', reject);
             ws.once('message', (msg) => {
                 assert.equal(msg, 'something');
                 resolve();
             });
         });
 
+        ws.close();
+        peer.close();
         wss.close();
         await new Promise(resolve => server.close(resolve));
     });
+
+    it('should multiplex requests over one client session', async () => {
+        const server = createServer({
+            domain: 'example.com',
+        });
+        await new Promise(resolve => server.listen(resolve));
+
+        const created = await request(server).get('/mux-app');
+        assert.equal(created.statusCode, 200);
+
+        const local = http.createServer((req, res) => {
+            if (req.url === '/slow') {
+                setTimeout(() => res.end('slow'), 200);
+                return;
+            }
+            res.end('fast');
+        });
+        await new Promise(resolve => local.listen(resolve));
+
+        const peer = await connectMuxClient(created.body.port, (stream) => {
+            const sock = net.connect({ port: local.address().port, host: '127.0.0.1' });
+            sock.setNoDelay(true);
+            sock.on('error', () => stream.destroy());
+            stream.pipe(sock).pipe(stream);
+        });
+        await waitConnected(server, 'mux-app');
+
+        const hit = (path) => new Promise((resolve, reject) => {
+            const req = http.get({
+                host: '127.0.0.1',
+                port: server.address().port,
+                path,
+                headers: {
+                    host: 'mux-app.example.com',
+                },
+            }, (res) => {
+                const chunks = [];
+                res.on('data', (chunk) => chunks.push(chunk));
+                res.on('end', () => {
+                    resolve({
+                        status: res.statusCode,
+                        body: Buffer.concat(chunks).toString(),
+                    });
+                });
+            });
+            req.on('error', reject);
+        });
+
+        const paths = ['/slow'].concat(Array.from({ length: 20 }, (_, i) => '/fast-' + i));
+        const results = await Promise.all(paths.map(hit));
+        assert.equal(results[0].status, 200);
+        assert.equal(results[0].body, 'slow');
+        for (const result of results.slice(1)) {
+            assert.equal(result.status, 200);
+            assert.equal(result.body, 'fast');
+        }
+
+        peer.close();
+        await new Promise(resolve => local.close(resolve));
+        await new Promise(resolve => server.close(resolve));
+    }).timeout(10000);
 
     it('should support the /api/tunnels/:id/status endpoint', async () => {
         const server = createServer();

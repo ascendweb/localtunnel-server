@@ -4,9 +4,11 @@
 
 ## Ascend
 
-This server is the stock localtunnel server plus a bearer token, owner tokens, and a fixed port range for the client TCP connections.
+This server is the localtunnel server plus a bearer token, owner tokens, a fixed port range, and multiplexed client sessions.
 
-A name that is already registered returns 409. The create response includes `owner_token`. Sending that value back in `X-Tunnel-Owner` closes the old tunnel and reuses the name. A name is also released about a second after its last tunnel socket closes.
+The Ascend client opens one TCP connection per tunnel. Each HTTP request and websocket is an HTTP/2 CONNECT stream on that connection, so many in-flight requests share the session.
+
+A name that is already registered returns 409. The create response includes `owner_token`. Sending that value back in `X-Tunnel-Owner` closes the old tunnel and reuses the name. A name is also released about a second after its client session closes.
 
 ```shell
 bin/server --port 3000 --domain shares.ascendde.dev --min-port 2000 --max-port 2100 --token "$TUNNEL_TOKEN"
